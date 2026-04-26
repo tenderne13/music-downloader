@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet("onedir", "onefile")]
     [string]$Mode = "onedir",
     [string]$Icon = ""
@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 if (-not (Test-Path ".\.venv\Scripts\python.exe")) {
-    throw "未找到 .venv\Scripts\python.exe，请先创建并安装虚拟环境。"
+    throw "Missing .venv\\Scripts\\python.exe. Create the virtual environment and install dependencies first."
 }
 
 & .\.venv\Scripts\python.exe -m pip install -r requirements.txt
