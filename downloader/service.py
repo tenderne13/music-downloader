@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from playwright.sync_api import Page, sync_playwright
+
 from .config import SiteConfig
 from .runner import DownloadRunner
 
@@ -52,42 +54,59 @@ class BatchDownloadService:
         total = len(tasks)
         self._emit_progress(event="batch_started", total=total, completed=0)
 
-        for index, task in enumerate(tasks, start=1):
-            if self._stop_requested:
-                self._log("批量", "收到停止请求，批量下载已中止。")
-                self._emit_progress(event="batch_stopped", total=total, completed=index - 1)
-                return "stopped"
+        shared_page: Page | None = None
+        bootstrap_runner = DownloadRunner(
+            config=self.config,
+            query=tasks[0].query,
+            download_dir=self.download_dir,
+            headless=self.headless,
+            user_data_dir=self.user_data_dir,
+            browser_channel=self.browser_channel,
+            log_callback=self._handle_runner_log(index=1, total=total, query=tasks[0].query),
+        )
 
-            self._log("批量", f"开始任务 {index}/{total}: {task.query}")
-            self._emit_progress(
-                event="task_started",
-                total=total,
-                completed=index - 1,
-                current=index,
-                query=task.query,
-                task_progress=0,
-            )
+        with sync_playwright() as playwright:
+            context = bootstrap_runner.launch_context(playwright)
+            try:
+                for index, task in enumerate(tasks, start=1):
+                    if self._stop_requested:
+                        self._log("批量", "收到停止请求，批量下载已中止。")
+                        self._emit_progress(event="batch_stopped", total=total, completed=index - 1)
+                        return "stopped"
 
-            runner = DownloadRunner(
-                config=self.config,
-                query=task.query,
-                download_dir=self.download_dir,
-                headless=self.headless,
-                user_data_dir=self.user_data_dir,
-                browser_channel=self.browser_channel,
-                log_callback=self._handle_runner_log(index=index, total=total, query=task.query),
-            )
-            runner.run()
+                    self._log("批量", f"开始任务 {index}/{total}: {task.query}")
+                    self._emit_progress(
+                        event="task_started",
+                        total=total,
+                        completed=index - 1,
+                        current=index,
+                        query=task.query,
+                        task_progress=0,
+                    )
 
-            self._emit_progress(
-                event="task_completed",
-                total=total,
-                completed=index,
-                current=index,
-                query=task.query,
-                task_progress=100,
-            )
-            self._log("批量", f"任务完成 {index}/{total}: {task.query}")
+                    runner = DownloadRunner(
+                        config=self.config,
+                        query=task.query,
+                        download_dir=self.download_dir,
+                        headless=self.headless,
+                        user_data_dir=self.user_data_dir,
+                        browser_channel=self.browser_channel,
+                        log_callback=self._handle_runner_log(index=index, total=total, query=task.query),
+                    )
+                    shared_page = runner.run_in_context(context, shared_page)
+
+                    self._emit_progress(
+                        event="task_completed",
+                        total=total,
+                        completed=index,
+                        current=index,
+                        query=task.query,
+                        task_progress=100,
+                    )
+                    self._log("批量", f"任务完成 {index}/{total}: {task.query}")
+            finally:
+                self._log("完成", "关闭浏览器上下文")
+                context.close()
 
         self._emit_progress(event="batch_completed", total=total, completed=total)
         return "completed"

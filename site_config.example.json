@@ -5,10 +5,13 @@
   ],
   "detail_download_buttons": [
     "#btn-download-mp3",
+    "a:has-text('下载歌曲')",
     "text=下载"
   ],
   "quality_download_buttons": [
-    "text=高品质"
+    "#btn-download-mp3[href]",
+    "a[href*='pan.quark.cn']",
+    "a:has-text('下载歌曲')"
   ],
   "storage_row_selectors": [
     "tbody tr",
@@ -17,7 +20,11 @@
     "[role='row']"
   ],
   "row_name_selectors": [
-    "#ice-container > div.DetailLayout--container--264z8Xd.DetailLayout--share-detail-container--2v06EHx.share-container-cls-name-for-get-dom > div.DetailLayout--content--14Z28Ay > div.share-detail-content > div.ShareDetail--content-body--3dZcv3x > div.share-content > div.file-list.list-file-share-height > div.ant-table-wrapper > div > div > div > div > div > div.ant-table-body > div > table > tbody > tr > td:nth-child(2) > div > div.file-click-wrap > div.filename-text.editable-cell.editable-cell-allow"
+    ".filename-text",
+    ".file-name",
+    ".filename",
+    ".file-click-wrap",
+    "td:nth-child(2)"
   ],
   "row_size_selectors": [
     "td:nth-child(3)",
@@ -26,11 +33,11 @@
     "[data-role='size']"
   ],
   "row_download_selectors": [
-    "#ice-container > div.DetailLayout--container--264z8Xd.DetailLayout--share-detail-container--2v06EHx.share-container-cls-name-for-get-dom > div.DetailLayout--content--14Z28Ay > div.share-detail-content > div.ShareDetail--content-body--3dZcv3x > div.share-content > div.file-list.list-file-share-height > div.ant-table-wrapper > div > div > div > div > div > div.ant-table-body > div > table > tbody > tr:nth-child(1) > td:nth-child(2) > div > div.hover-oper > div.hover-oper-list > div.hover-oper-item.hoitem-down"
+    ".hoitem-down",
+    ".share-hover-menu-download"
   ],
   "pre_download_confirm_buttons": [
     "body > div.jconfirm.jconfirm-light.jconfirm-open > div.jconfirm-scrollpane > div > div > div > div > div > div > div > div.jconfirm-buttons",
-    ".jconfirm-buttons button",
     "text=确定"
   ],
   "post_download_confirm_buttons": [],

@@ -4,12 +4,47 @@ import re
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Callable
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlparse
 
-from playwright.sync_api import BrowserContext, Download, Locator, Page, TimeoutError, sync_playwright
+from playwright.sync_api import BrowserContext, Download, Error, Locator, Page, Playwright, TimeoutError, sync_playwright
 
 from .config import SiteConfig
+
+FAST_NAVIGATION_TIMEOUT_MS = 1200
+FAST_LOAD_TIMEOUT_MS = 1500
+OPTIONAL_UI_TIMEOUT_MS = 250
+OPTIONAL_UI_HIDDEN_TIMEOUT_MS = 800
+SEARCH_PAGE_RETRY_ATTEMPTS = 3
+SEARCH_PAGE_RETRY_DELAY_MS = 1200
+DEFAULT_ROW_NAME_SELECTORS = [
+    ".filename-text",
+    ".file-name",
+    ".filename",
+    ".file-click-wrap",
+    "td:nth-child(2)",
+]
+DEFAULT_ROW_DOWNLOAD_SELECTORS = [
+    ".hoitem-down",
+    ".share-hover-menu-download",
+]
+DEFAULT_CONFIRM_BUTTON_SELECTORS = [
+    ".jconfirm-buttons button",
+    ".jconfirm-buttons a",
+    ".jconfirm-buttons .btn",
+    ".jconfirm .jconfirm-buttons button",
+]
+DEFAULT_CONFIRM_CLOSE_SELECTORS = [
+    ".jconfirm .jconfirm-closeIcon",
+    ".jconfirm .closeIcon",
+]
+DIRECT_DOWNLOAD_LINK_SELECTORS = [
+    "#btn-download-mp3[href]",
+    "a[href*='pan.quark.cn']",
+    "a[href*='drive.uc.cn']",
+    "a:has-text('下载歌曲')",
+]
 
 
 @dataclass(slots=True)
@@ -42,73 +77,211 @@ class DownloadRunner:
 
     def run(self) -> None:
         with sync_playwright() as playwright:
-            self.user_data_dir.mkdir(parents=True, exist_ok=True)
-            self._log(
-                "初始化",
-                (
-                    f"启动持久化浏览器: channel={self.browser_channel}, "
-                    f"headless={self.headless}, profile={self.user_data_dir}"
-                ),
-            )
-
-            launch_kwargs = {
-                "user_data_dir": str(self.user_data_dir),
-                "headless": self.headless,
-                "accept_downloads": True,
-            }
-            if self.browser_channel != "chromium":
-                launch_kwargs["channel"] = self.browser_channel
-
+            context = self.launch_context(playwright)
             try:
-                context = playwright.chromium.launch_persistent_context(**launch_kwargs)
+                self.run_in_context(context)
             except Exception as exc:
-                raise RuntimeError(self._build_browser_launch_error(exc)) from exc
-            page = context.pages[0] if context.pages else context.new_page()
-            page.set_default_timeout(self.config.timeout_ms)
-
-            try:
-                self._process(context, page)
-            except Exception as exc:
-                self._log("错误", f"{type(exc).__name__}: {exc}")
-                self._log("错误", traceback.format_exc().rstrip())
-                self._dump_debug_artifacts(page, "runtime-error")
-                raise
-            finally:
                 self._log("完成", "关闭浏览器上下文")
                 context.close()
+                raise
+            self._log("完成", "关闭浏览器上下文")
+            context.close()
 
-    def _process(self, context: BrowserContext, page: Page) -> None:
+    def launch_context(self, playwright: Playwright) -> BrowserContext:
+        self.user_data_dir.mkdir(parents=True, exist_ok=True)
+        self._log(
+            "初始化",
+            (
+                f"启动持久化浏览器: channel={self.browser_channel}, "
+                f"headless={self.headless}, profile={self.user_data_dir}"
+            ),
+        )
+
+        launch_kwargs = {
+            "user_data_dir": str(self.user_data_dir),
+            "headless": self.headless,
+            "accept_downloads": True,
+        }
+        if self.browser_channel != "chromium":
+            launch_kwargs["channel"] = self.browser_channel
+
+        try:
+            return playwright.chromium.launch_persistent_context(**launch_kwargs)
+        except Exception as exc:
+            raise RuntimeError(self._build_browser_launch_error(exc)) from exc
+
+    def run_in_context(self, context: BrowserContext, page: Page | None = None) -> Page:
+        active_page = self._prepare_page(context, page)
+        try:
+            active_page = self._process(context, active_page)
+        except Exception as exc:
+            self._log("错误", f"{type(exc).__name__}: {exc}")
+            self._log("错误", traceback.format_exc().rstrip())
+            self._dump_debug_artifacts(active_page, "runtime-error")
+            raise
+        return self._cleanup_context_pages(context, active_page)
+
+    def _prepare_page(self, context: BrowserContext, page: Page | None = None) -> Page:
+        active_page = page
+        if active_page is None or active_page.is_closed():
+            active_page = context.pages[0] if context.pages else context.new_page()
+        active_page.set_default_timeout(self.config.timeout_ms)
+        return active_page
+
+    def _cleanup_context_pages(self, context: BrowserContext, active_page: Page) -> Page:
+        surviving_page = active_page
+        for candidate in list(context.pages):
+            if candidate == surviving_page:
+                continue
+            try:
+                candidate.close()
+            except Exception:
+                pass
+
+        if surviving_page.is_closed():
+            surviving_page = context.pages[0] if context.pages else context.new_page()
+
+        surviving_page.set_default_timeout(self.config.timeout_ms)
+        try:
+            surviving_page.goto("about:blank", wait_until="domcontentloaded")
+        except Exception:
+            pass
+        return surviving_page
+
+    def _run_timed(self, stage: str, label: str, action: Callable[[], object]) -> object:
+        started_at = perf_counter()
+        try:
+            return action()
+        finally:
+            elapsed = perf_counter() - started_at
+            self._log(stage, f"{label}耗时: {elapsed:.3f}s")
+
+    def _process(self, context: BrowserContext, page: Page) -> Page:
         search_url = self.config.search_url_template.format(query=quote(self.query))
         self._log("步骤 1/5", f"打开搜索页: {search_url}")
-        page.goto(search_url, wait_until="domcontentloaded")
+        page = self._run_timed("耗时", "步骤1-打开搜索页", lambda: self._open_search_page(context, page, search_url))
         self._log("步骤 1/5", f"搜索页已加载: {page.url}")
 
-        detail_page = self._open_first_result(context, page)
+        detail_page = self._run_timed("耗时", "步骤1-打开搜索结果详情页", lambda: self._open_first_result(context, page))
         self._log("步骤 2/5", f"已进入详情页: {detail_page.url}")
 
-        intermediate_page = self._click_download_buttons(context, detail_page)
+        intermediate_page = self._run_timed("耗时", "步骤2-详情页下载流程", lambda: self._click_download_buttons(context, detail_page))
         self._log("步骤 3/5", f"已到达存储页: {intermediate_page.url}")
-        self._dismiss_optional_confirm(intermediate_page, self.config.post_quality_close_buttons)
+        self._run_timed(
+            "耗时",
+            "步骤3-关闭音质页后置弹窗",
+            lambda: self._dismiss_optional_confirm(intermediate_page, self.config.post_quality_close_buttons),
+        )
 
-        storage_page = self._enter_numeric_directory(intermediate_page)
+        storage_page = self._run_timed("耗时", "步骤4-进入数字目录", lambda: self._enter_numeric_directory(intermediate_page))
         self._log("步骤 4/5", f"开始扫描列表行: {storage_page.url}")
 
-        download = self._download_largest_file(storage_page, auto_enter_attempts=max(1, self.config.max_depth))
+        download = self._run_timed(
+            "耗时",
+            "步骤4-定位并触发下载",
+            lambda: self._download_largest_file(storage_page, auto_enter_attempts=max(1, self.config.max_depth)),
+        )
         target_path = self.download_dir / download.suggested_filename
-        download.save_as(str(target_path))
+        self._run_timed("耗时", "步骤5-保存下载文件", lambda: download.save_as(str(target_path)))
         self._log("步骤 5/5", f"下载完成: {target_path}")
+        return storage_page
+
+    def _open_search_page(self, context: BrowserContext, page: Page, search_url: str) -> Page:
+        current_page = page
+        last_error: Exception | None = None
+
+        for attempt in range(1, SEARCH_PAGE_RETRY_ATTEMPTS + 1):
+            current_page = self._ensure_navigation_page(context, current_page)
+            try:
+                current_page.goto(search_url, wait_until="domcontentloaded")
+                return current_page
+            except Exception as exc:
+                last_error = exc
+                is_retryable = self._is_retryable_navigation_error(exc)
+                if attempt >= SEARCH_PAGE_RETRY_ATTEMPTS or not is_retryable:
+                    break
+
+                self._log(
+                    "重试",
+                    (
+                        f"打开搜索页失败，第 {attempt}/{SEARCH_PAGE_RETRY_ATTEMPTS} 次将在 "
+                        f"{SEARCH_PAGE_RETRY_DELAY_MS}ms 后重试: {type(exc).__name__}: {exc}"
+                    ),
+                )
+                current_page = self._recreate_page(context, current_page)
+                current_page.wait_for_timeout(SEARCH_PAGE_RETRY_DELAY_MS)
+
+        assert last_error is not None
+        raise RuntimeError(self._build_search_page_error(search_url, last_error)) from last_error
+
+    def _ensure_navigation_page(self, context: BrowserContext, page: Page | None) -> Page:
+        if page is not None and not page.is_closed():
+            page.set_default_timeout(self.config.timeout_ms)
+            return page
+        return self._recreate_page(context, page)
+
+    def _recreate_page(self, context: BrowserContext, page: Page | None) -> Page:
+        if page is not None and not page.is_closed():
+            try:
+                page.close()
+            except Exception:
+                pass
+
+        new_page = context.new_page()
+        new_page.set_default_timeout(self.config.timeout_ms)
+        return new_page
+
+    def _is_retryable_navigation_error(self, exc: Exception) -> bool:
+        if isinstance(exc, TimeoutError):
+            return True
+        if not isinstance(exc, Error):
+            return False
+
+        message = str(exc).lower()
+        retryable_markers = (
+            "err_empty_response",
+            "err_connection_reset",
+            "err_connection_closed",
+            "err_connection_timed_out",
+            "err_connection_refused",
+            "err_network_changed",
+            "err_internet_disconnected",
+            "err_name_not_resolved",
+        )
+        return any(marker in message for marker in retryable_markers)
+
+    def _build_search_page_error(self, search_url: str, exc: Exception) -> str:
+        message = str(exc)
+        lowered = message.lower()
+        if "err_empty_response" in lowered:
+            return (
+                "打开搜索页失败：目标站点返回了空响应，已自动重试仍未成功。"
+                f"请稍后重新运行，或先在浏览器中打开 {search_url} 确认站点是否可用。"
+                f" 原始错误: {message}"
+            )
+        if isinstance(exc, TimeoutError):
+            return (
+                "打开搜索页超时，已尝试自动重试但仍未成功。"
+                f" 请检查网络或站点状态：{search_url}"
+                f" 原始错误: {message}"
+            )
+        return f"打开搜索页失败: {search_url}。原始错误: {message}"
 
     def _open_first_result(self, context: BrowserContext, page: Page) -> Page:
         original_url = page.url
         self._log("结果", "定位第一条搜索结果")
-        locator = self._first_visible(page, self.config.search_result_links)
+        locator = self._run_timed("耗时", "结果-定位第一条搜索结果", lambda: self._first_visible(page, self.config.search_result_links))
         self._log("结果", f"已找到候选结果，当前页面: {page.url}")
 
-        clicked_page = self._click_and_capture_page(
-            context=context,
-            page=page,
-            locator=locator.first,
-            expect_new_page=self.config.expect_new_page_after_result_click,
+        clicked_page = self._run_timed(
+            "耗时",
+            "结果-点击第一条搜索结果",
+            lambda: self._click_and_capture_page(
+                context=context,
+                page=page,
+                locator=locator.first,
+                expect_new_page=self.config.expect_new_page_after_result_click,
+            ),
         )
         self._log("结果", f"已点击搜索结果，当前页面: {clicked_page.url}")
 
@@ -131,21 +304,105 @@ class DownloadRunner:
 
     def _click_download_buttons(self, context: BrowserContext, page: Page) -> Page:
         self._log("下载", f"处理详情页动作: {page.url}")
-        self._dismiss_optional_confirm(page, self.config.pre_download_confirm_buttons)
+        self._run_timed(
+            "耗时",
+            "步骤2-前置弹窗处理",
+            lambda: self._dismiss_optional_confirm(
+                page,
+                self._confirm_button_selectors(self.config.pre_download_confirm_buttons),
+            ),
+        )
 
         self._log("下载", "查找详情页下载按钮")
-        self._first_visible(page, self.config.detail_download_buttons).first.click()
+        detail_button = self._run_timed(
+            "耗时",
+            "步骤2-定位详情页下载按钮",
+            lambda: self._first_visible(page, self.config.detail_download_buttons),
+        )
+
+        direct_download_href = self._find_direct_download_href(page, extra_locators=[detail_button.first])
+        if direct_download_href:
+            self._log("下载", f"详情页已提供直达下载链接: {direct_download_href}")
+            return self._run_timed(
+                "耗时",
+                "步骤2-打开直达下载目标页",
+                lambda: self._open_new_page_from_href(context, direct_download_href),
+            )
+
+        self._run_timed(
+            "耗时",
+            "步骤2-点击详情页下载按钮",
+            lambda: self._click_with_retry(page=page, locator=detail_button.first),
+        )
         self._log("下载", "已点击详情页下载按钮")
-        self._dismiss_optional_confirm(page, self.config.post_download_confirm_buttons)
+        self._run_timed(
+            "耗时",
+            "步骤2-后置弹窗处理",
+            lambda: self._dismiss_optional_confirm(
+                page,
+                self._confirm_button_selectors(self.config.post_download_confirm_buttons),
+            ),
+        )
+        self._run_timed("耗时", "步骤2-通用拦截弹窗清理", lambda: self._dismiss_generic_blocking_dialogs(page))
+
+        direct_download_href = self._find_direct_download_href(page)
+        if direct_download_href:
+            self._log("下载", f"点击后已出现直达下载链接: {direct_download_href}")
+            return self._run_timed(
+                "耗时",
+                "步骤2-打开直达下载目标页",
+                lambda: self._open_new_page_from_href(context, direct_download_href),
+            )
 
         self._log("下载", "查找音质下载按钮")
-        quality_button = self._first_visible(page, self.config.quality_download_buttons)
-        return self._click_and_capture_page(
-            context=context,
-            page=page,
-            locator=quality_button.first,
-            expect_new_page=self.config.expect_new_page_after_quality_click,
+        quality_button = self._run_timed(
+            "耗时",
+            "步骤2-定位音质下载按钮",
+            lambda: self._first_visible(page, self.config.quality_download_buttons),
         )
+        return self._run_timed(
+            "耗时",
+            "步骤2-打开音质下载目标页",
+            lambda: self._click_and_capture_page(
+                context=context,
+                page=page,
+                locator=quality_button.first,
+                expect_new_page=self.config.expect_new_page_after_quality_click,
+            ),
+        )
+
+    def _find_direct_download_href(self, page: Page, extra_locators: list[Locator] | None = None) -> str:
+        candidate_locators = list(extra_locators or [])
+
+        for selector in DIRECT_DOWNLOAD_LINK_SELECTORS:
+            locator = page.locator(selector)
+            if locator.count() == 0:
+                continue
+            try:
+                locator.first.wait_for(state="visible", timeout=OPTIONAL_UI_TIMEOUT_MS)
+            except TimeoutError:
+                continue
+            candidate_locators.append(locator.first)
+
+        for locator in candidate_locators:
+            href = self._extract_clickable_href(page, locator)
+            if self._looks_like_direct_download_href(page.url, href):
+                return href
+        return ""
+
+    def _looks_like_direct_download_href(self, current_url: str, href: str) -> bool:
+        if not href:
+            return False
+
+        parsed_href = urlparse(href)
+        parsed_current = urlparse(current_url)
+        if parsed_href.scheme not in {"http", "https"}:
+            return False
+        if href == current_url:
+            return False
+        if parsed_href.netloc and parsed_href.netloc != parsed_current.netloc:
+            return True
+        return any(token in href.lower() for token in ("pan.quark.cn", "drive.uc.cn", "/share/", "/s/"))
 
     def _enter_numeric_directory(self, page: Page) -> Page:
         pattern = re.compile(self.config.directory_name_pattern)
@@ -156,7 +413,7 @@ class DownloadRunner:
 
             numeric_row = None
             for row in rows:
-                name = self._text_from_row(row, self.config.row_name_selectors)
+                name = self._text_from_row(row, self._row_name_selectors())
                 if pattern.fullmatch(name):
                     numeric_row = row
                     self._log("目录", f"匹配到数字目录: {name}")
@@ -184,7 +441,7 @@ class DownloadRunner:
         self._log("文件", f"当前层级可见行数: {len(rows)}")
 
         for row in rows:
-            name = self._text_from_row(row, self.config.row_name_selectors, optional=True)
+            name = self._text_from_row(row, self._row_name_selectors(), optional=True)
             raw_row_text = row.inner_text().strip()
             self._log("文件", f"原始行文本: {raw_row_text}")
             if not name:
@@ -399,26 +656,71 @@ class DownloadRunner:
     ) -> Page:
         if expect_new_page:
             self._log("跳转", f"点击后预期打开新页面，当前页面: {page.url}")
-            with context.expect_page(timeout=self.config.timeout_ms) as new_page_info:
-                locator.click()
-            new_page = new_page_info.value
-            new_page.wait_for_load_state("domcontentloaded")
-            self._log("跳转", f"已打开新页面: {new_page.url}")
-            return new_page
+            return self._click_and_capture_new_page(context=context, page=page, locator=locator)
 
         current_url = page.url
         self._log("跳转", f"在当前页面点击: {current_url}")
-        locator.click()
+        self._click_with_retry(page=page, locator=locator)
 
         try:
-            page.wait_for_url(lambda url: url != current_url, timeout=5000)
+            page.wait_for_url(
+                lambda url: url != current_url,
+                timeout=min(self.config.timeout_ms, FAST_NAVIGATION_TIMEOUT_MS),
+            )
             self._log("跳转", f"URL 已变化: {page.url}")
         except TimeoutError:
-            self._log("跳转", "5000ms 内 URL 未变化")
+            self._log("跳转", "短暂等待后 URL 未变化")
 
-        page.wait_for_load_state("domcontentloaded")
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=min(self.config.timeout_ms, FAST_LOAD_TIMEOUT_MS))
+        except TimeoutError:
+            pass
         self._log("跳转", f"页面已就绪: {page.url}")
         return page
+
+    def _click_and_capture_new_page(self, *, context: BrowserContext, page: Page, locator: Locator) -> Page:
+        last_error: TimeoutError | None = None
+        fallback_href = self._extract_clickable_href(page, locator)
+        for attempt in range(2):
+            try:
+                with context.expect_page(timeout=self.config.timeout_ms) as new_page_info:
+                    self._click_with_retry(page=page, locator=locator)
+                new_page = new_page_info.value
+                new_page.wait_for_load_state("domcontentloaded")
+                self._log("跳转", f"已打开新页面: {new_page.url}")
+                return new_page
+            except TimeoutError as exc:
+                last_error = exc
+                if attempt == 0 and self._handle_click_interception(page, exc):
+                    self._log("跳转", "点击被遮挡后已清理弹窗，重试打开新页面")
+                    continue
+                if fallback_href and self._looks_like_detached_click(exc):
+                    self._log("跳转", f"点击期间元素被重绘，回退使用 href 打开新页面: {fallback_href}")
+                    return self._open_new_page_from_href(context, fallback_href)
+                if fallback_href and attempt == 1:
+                    self._log("跳转", f"点击打开新页面失败，回退使用 href: {fallback_href}")
+                    return self._open_new_page_from_href(context, fallback_href)
+                raise
+        assert last_error is not None
+        raise last_error
+
+    def _click_with_retry(self, *, page: Page, locator: Locator) -> None:
+        last_error: TimeoutError | None = None
+        for attempt in range(2):
+            try:
+                if attempt == 0:
+                    locator.click()
+                else:
+                    locator.click(force=True, timeout=min(self.config.timeout_ms, 2000))
+                return
+            except TimeoutError as exc:
+                last_error = exc
+                if attempt == 0 and self._handle_click_interception(page, exc):
+                    self._log("跳转", "检测到点击被遮挡，已处理弹窗并重试")
+                    continue
+                raise
+        assert last_error is not None
+        raise last_error
 
     def _first_visible(self, scope: Page | Locator, selectors: list[str]) -> Locator:
         last_error: Exception | None = None
@@ -453,22 +755,87 @@ class DownloadRunner:
             self._log("弹窗", "未配置可选确认弹窗选择器")
             return
         for selector in selectors:
-            locator = page.locator(selector)
+            locator = self._confirm_locator(page, selector)
             self._log("弹窗", f"检查确认弹窗选择器: {selector}")
+            if locator.count() == 0:
+                self._log("弹窗", f"确认弹窗选择器不存在: {selector}")
+                continue
             try:
-                locator.first.wait_for(state="visible", timeout=2000)
+                locator.first.wait_for(state="visible", timeout=OPTIONAL_UI_TIMEOUT_MS)
             except TimeoutError:
                 self._log("弹窗", f"确认弹窗选择器不可见: {selector}")
                 continue
 
-            locator.first.click()
+            locator.first.click(force=True, timeout=OPTIONAL_UI_HIDDEN_TIMEOUT_MS)
             try:
-                locator.first.wait_for(state="hidden", timeout=3000)
+                locator.first.wait_for(state="hidden", timeout=OPTIONAL_UI_HIDDEN_TIMEOUT_MS)
             except TimeoutError:
                 pass
             self._log("弹窗", f"已处理确认弹窗: {selector}")
             return
         self._log("弹窗", "没有处理任何确认弹窗")
+
+    def _confirm_locator(self, page: Page, selector: str) -> Locator:
+        dialog = page.locator(".jconfirm.jconfirm-open, .jconfirm")
+        if selector.startswith("text="):
+            text_value = selector[len("text=") :].strip()
+            return dialog.locator("button, a, .btn").filter(has_text=text_value)
+        return dialog.locator(selector)
+
+    def _handle_click_interception(self, page: Page, exc: TimeoutError) -> bool:
+        message = str(exc)
+        if "intercepts pointer events" not in message and "jconfirm" not in message.lower():
+            return False
+        self._log("弹窗", "检测到点击被弹窗遮挡，尝试自动清理")
+        return self._dismiss_generic_blocking_dialogs(page)
+
+    def _looks_like_detached_click(self, exc: TimeoutError) -> bool:
+        message = str(exc).lower()
+        return "detached from the dom" in message or "element was detached" in message
+
+    def _dismiss_generic_blocking_dialogs(self, page: Page) -> bool:
+        handled = False
+
+        for selector in self._confirm_button_selectors([]):
+            locator = page.locator(selector)
+            if locator.count() == 0:
+                continue
+            try:
+                if not locator.first.is_visible():
+                    continue
+                self._log("弹窗", f"尝试自动点击确认弹窗按钮: {selector}")
+                locator.first.click(force=True, timeout=OPTIONAL_UI_HIDDEN_TIMEOUT_MS)
+                page.wait_for_timeout(150)
+                handled = True
+                break
+            except Exception:
+                continue
+
+        if handled:
+            return True
+
+        for selector in DEFAULT_CONFIRM_CLOSE_SELECTORS:
+            locator = page.locator(selector)
+            if locator.count() == 0:
+                continue
+            try:
+                if not locator.first.is_visible():
+                    continue
+                self._log("弹窗", f"尝试自动关闭拦截弹窗: {selector}")
+                locator.first.click(force=True, timeout=OPTIONAL_UI_HIDDEN_TIMEOUT_MS)
+                page.wait_for_timeout(150)
+                return True
+            except Exception:
+                continue
+
+        return False
+
+    def _open_new_page_from_href(self, context: BrowserContext, href: str) -> Page:
+        new_page = context.new_page()
+        new_page.set_default_timeout(self.config.timeout_ms)
+        new_page.goto(href, wait_until="domcontentloaded")
+        self._log("跳转", f"href 回退打开新页面成功: {new_page.url}")
+        return new_page
 
     def _extract_clickable_href(self, page: Page, locator: Locator) -> str:
         href = locator.evaluate(
@@ -629,10 +996,25 @@ class DownloadRunner:
         raise RuntimeError(f"未找到可用的下载按钮: {selectors}")
 
     def _download_selectors(self) -> list[str]:
-        return [*self.config.row_download_selectors, ".hoitem-down", ".share-hover-menu-download"]
+        return self._merge_selector_lists(DEFAULT_ROW_DOWNLOAD_SELECTORS, self.config.row_download_selectors)
 
     def _page_download_selectors(self) -> list[str]:
         return [".share-download", "div[title='下载']", "button[title='下载']"]
+
+    def _row_name_selectors(self) -> list[str]:
+        return self._merge_selector_lists(DEFAULT_ROW_NAME_SELECTORS, self.config.row_name_selectors)
+
+    def _confirm_button_selectors(self, configured: list[str]) -> list[str]:
+        return self._merge_selector_lists(DEFAULT_CONFIRM_BUTTON_SELECTORS, configured)
+
+    def _merge_selector_lists(self, preferred: list[str], configured: list[str]) -> list[str]:
+        merged: list[str] = []
+        for selector in [*preferred, *configured]:
+            normalized = selector.strip()
+            if not normalized or normalized in merged:
+                continue
+            merged.append(normalized)
+        return merged
 
     def _open_row(self, page: Page, row: Locator) -> bool:
         current_url = page.url
@@ -719,18 +1101,26 @@ class DownloadRunner:
 
     def _wait_for_row_open(self, page: Page, before_signature: str, current_url: str) -> bool:
         try:
-            page.wait_for_url(lambda url: url != current_url, timeout=5000)
+            page.wait_for_url(
+                lambda url: url != current_url,
+                timeout=min(self.config.timeout_ms, FAST_NAVIGATION_TIMEOUT_MS),
+            )
             self._log("跳转", f"打开行后 URL 已变化: {page.url}")
         except TimeoutError:
             self._log("跳转", "打开行后 URL 未变化，继续等待 DOM 或内容变化")
 
         try:
-            page.wait_for_load_state("domcontentloaded", timeout=3000)
+            page.wait_for_load_state("domcontentloaded", timeout=min(self.config.timeout_ms, FAST_LOAD_TIMEOUT_MS))
         except TimeoutError:
             pass
 
-        for _ in range(10):
-            page.wait_for_timeout(500)
+        after_signature = self._page_signature(page)
+        if page.url != current_url or after_signature != before_signature:
+            self._log("跳转", f"检测到内容变化，视为已打开行: {after_signature}")
+            return True
+
+        for _ in range(8):
+            page.wait_for_timeout(200)
             after_signature = self._page_signature(page)
             if page.url != current_url or after_signature != before_signature:
                 self._log("跳转", f"检测到内容变化，视为已打开行: {after_signature}")
