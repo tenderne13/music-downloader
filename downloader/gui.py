@@ -5,9 +5,11 @@ import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from typing import Callable
 
 from .app_config import AppConfig, DEFAULT_SETTINGS_PATH
 from .config import SiteConfig
+from .runtime import app_icon_path
 from .service import BatchDownloadService
 
 
@@ -17,6 +19,8 @@ class MusicDownloaderGUI:
         self.root.title("Music Downloader")
         self.root.geometry("1120x760")
         self.root.minsize(980, 680)
+        self._window_icon_image: tk.PhotoImage | None = None
+        self._apply_window_icon()
 
         self.settings_path = Path(settings_path)
         self.event_queue: queue.Queue[tuple[str, object]] = queue.Queue()
@@ -39,6 +43,21 @@ class MusicDownloaderGUI:
 
     def run(self) -> None:
         self.root.mainloop()
+
+    def _apply_window_icon(self) -> None:
+        icon_path = app_icon_path()
+        if icon_path is None:
+            return
+
+        try:
+            if icon_path.suffix.lower() == ".ico":
+                self.root.iconbitmap(default=str(icon_path))
+                return
+            if icon_path.suffix.lower() == ".png":
+                self._window_icon_image = tk.PhotoImage(file=str(icon_path))
+                self.root.iconphoto(True, self._window_icon_image)
+        except Exception:
+            self._window_icon_image = None
 
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=1)
@@ -70,7 +89,7 @@ class MusicDownloaderGUI:
         self.download_dir_var = tk.StringVar()
         self.user_data_dir_var = tk.StringVar()
         self.browser_channel_var = tk.StringVar()
-        self.headless_var = tk.BooleanVar()
+        self.show_browser_var = tk.BooleanVar(value=True)
 
         self._labeled_entry(
             app_frame,
@@ -105,12 +124,15 @@ class MusicDownloaderGUI:
             state="readonly",
         )
         channel_box.grid(row=3, column=1, sticky="ew", pady=6, padx=(0, 8))
-        ttk.Checkbutton(app_frame, text="无头模式", variable=self.headless_var).grid(
-            row=3,
-            column=2,
-            sticky="w",
-            pady=6,
-        )
+        ttk.Checkbutton(
+            app_frame,
+            text="显示浏览器操作（首次登录建议开启）",
+            variable=self.show_browser_var,
+        ).grid(row=3, column=2, sticky="w", pady=6)
+        ttk.Label(
+            app_frame,
+            text="首次需要网盘登录时建议显示浏览器；后续复用同一用户目录时可关闭，程序会在后台静默执行。",
+        ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(0, 4))
 
         queue_frame = ttk.LabelFrame(parent, text="歌曲队列", padding=12)
         queue_frame.grid(row=1, column=0, sticky="nsew", pady=(12, 0))
@@ -180,20 +202,16 @@ class MusicDownloaderGUI:
         ttk.Entry(base_frame, textvariable=self.max_depth_var).grid(row=2, column=1, sticky="ew", pady=6)
         ttk.Label(base_frame, text="超时毫秒").grid(row=3, column=0, sticky="w", pady=6)
         ttk.Entry(base_frame, textvariable=self.timeout_var).grid(row=3, column=1, sticky="ew", pady=6)
-        ttk.Checkbutton(base_frame, text="搜索结果点击后打开新页面", variable=self.expect_result_page_var).grid(
-            row=4,
-            column=0,
-            columnspan=2,
-            sticky="w",
-            pady=6,
-        )
-        ttk.Checkbutton(base_frame, text="音质按钮点击后打开新页面", variable=self.expect_quality_page_var).grid(
-            row=5,
-            column=0,
-            columnspan=2,
-            sticky="w",
-            pady=6,
-        )
+        ttk.Checkbutton(
+            base_frame,
+            text="搜索结果点击后打开新页面",
+            variable=self.expect_result_page_var,
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=6)
+        ttk.Checkbutton(
+            base_frame,
+            text="音质按钮点击后打开新页面",
+            variable=self.expect_quality_page_var,
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=6)
 
         self.selector_widgets: dict[str, tk.Text] = {}
         selector_specs = [
@@ -231,7 +249,7 @@ class MusicDownloaderGUI:
         label: str,
         variable: tk.StringVar,
         button_text: str,
-        button_command: callable,
+        button_command: Callable[[], None],
     ) -> None:
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=6)
         ttk.Entry(parent, textvariable=variable).grid(row=row, column=1, sticky="ew", pady=6, padx=(0, 8))
@@ -269,7 +287,7 @@ class MusicDownloaderGUI:
         self.download_dir_var.set(self.app_config.download_dir)
         self.user_data_dir_var.set(self.app_config.user_data_dir)
         self.browser_channel_var.set(self.app_config.browser_channel)
-        self.headless_var.set(self.app_config.headless)
+        self.show_browser_var.set(not self.app_config.headless)
 
         self.query_text.delete("1.0", tk.END)
         if self.app_config.queries:
@@ -322,7 +340,7 @@ class MusicDownloaderGUI:
             download_dir=self.download_dir_var.get().strip() or "downloads",
             user_data_dir=self.user_data_dir_var.get().strip() or ".browser-profile",
             browser_channel=self.browser_channel_var.get().strip() or "chromium",
-            headless=self.headless_var.get(),
+            headless=not self.show_browser_var.get(),
         )
 
     def _save_all_configs(self) -> bool:
@@ -348,7 +366,7 @@ class MusicDownloaderGUI:
 
     def _start_download(self) -> None:
         if self.worker is not None and self.worker.is_alive():
-            messagebox.showinfo("任务进行中", "当前已有下载任务在运行，请等待或先停止队列。")
+            messagebox.showinfo("任务进行中", "当前已有下载任务在运行，请等待完成或先停止队列。")
             return
 
         if not self._save_all_configs():
@@ -367,6 +385,11 @@ class MusicDownloaderGUI:
 
         app_config = self._collect_app_config()
         site_config = self._collect_site_config()
+
+        self._append_log(
+            "config",
+            "浏览器显示模式: 显示操作界面" if not app_config.headless else "浏览器显示模式: 后台静默运行",
+        )
 
         self.current_service = BatchDownloadService(
             config=site_config,
@@ -398,7 +421,7 @@ class MusicDownloaderGUI:
             self.status_var.set("当前没有运行中的任务")
             return
         self.current_service.request_stop()
-        self.status_var.set("已请求停止，当前歌曲处理完后结束")
+        self.status_var.set("已请求停止，当前歌曲处理完成后结束")
         self._append_log("batch", "已请求停止队列，当前歌曲结束后会退出。")
 
     def _queue_log_event(self, stage: str, message: str) -> None:

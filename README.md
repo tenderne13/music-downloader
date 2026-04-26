@@ -213,3 +213,50 @@ playwright install chromium
 ```
 
 如果浏览器启动失败，程序现在会直接提示你切换到 `chrome` / `msedge`，或者安装 `chromium`。
+
+## 浏览器显示配置
+
+图形界面里现在可以直接配置是否显示浏览器操作：
+
+- 首次需要网盘登录时，建议勾选“显示浏览器操作（首次登录建议开启）”
+- 登录状态会保存在 `user_data_dir` 指向的浏览器用户目录里
+- 后续继续使用同一个用户目录时，可以关闭显示，程序会按后台静默模式运行
+
+## 架构图
+
+```mermaid
+flowchart LR
+    User["用户"] --> GUI["Tkinter GUI / CLI"]
+    GUI --> AppConfig["AppConfig<br/>应用配置"]
+    GUI --> SiteConfig["SiteConfig<br/>站点规则配置"]
+    GUI --> Service["BatchDownloadService<br/>批量任务编排"]
+    Service --> Runner["DownloadRunner<br/>单任务下载流程"]
+    Runner --> Playwright["Playwright Browser"]
+    Playwright --> Target["目标站点 / 网盘页"]
+    Runner --> Files["下载目录"]
+    Runner --> Profile["浏览器用户目录<br/>登录状态复用"]
+    Service --> Logs["日志与进度回调"]
+    Logs --> GUI
+```
+
+## 流程图
+
+```mermaid
+flowchart TD
+    Start["启动 GUI 或 CLI"] --> Load["加载 app_settings.json 与站点配置"]
+    Load --> Decide["是否显示浏览器操作"]
+    Decide --> Login{"是否已有登录状态"}
+    Login -- 否 --> ShowBrowser["显示浏览器并完成首次登录"]
+    Login -- 是 --> RunMode["按配置启动浏览器<br/>可显示，也可静默"]
+    ShowBrowser --> SaveProfile["保存浏览器用户目录"]
+    SaveProfile --> RunMode
+    RunMode --> QueryLoop["按队列逐首处理歌曲"]
+    QueryLoop --> Search["打开搜索页并输入关键字"]
+    Search --> Detail["进入详情页"]
+    Detail --> Quality["选择下载入口 / 音质入口"]
+    Quality --> Storage["进入网盘目录并定位文件"]
+    Storage --> Download["触发下载"]
+    Download --> More{"还有下一首吗"}
+    More -- 是 --> QueryLoop
+    More -- 否 --> Done["任务完成"]
+```

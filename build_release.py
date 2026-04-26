@@ -1,11 +1,9 @@
 from __future__ import annotations
 
+import argparse
 import shutil
 import sys
 from pathlib import Path
-
-import PyInstaller.__main__
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 
 APP_NAME = "MusicDownloader"
@@ -14,12 +12,43 @@ DIST = ROOT / "dist"
 BUILD = ROOT / "build"
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build the desktop application with PyInstaller.")
+    parser.add_argument(
+        "mode",
+        nargs="?",
+        default="onedir",
+        choices=["onedir", "onefile"],
+        help="PyInstaller output mode.",
+    )
+    parser.add_argument(
+        "--icon",
+        default=None,
+        help="Path to the application icon. Use .ico on Windows and .icns on macOS.",
+    )
+    return parser.parse_args()
+
+
+def resolve_icon_path(icon_arg: str | None) -> Path | None:
+    if not icon_arg:
+        return None
+
+    candidate = Path(icon_arg)
+    if not candidate.is_absolute():
+        candidate = ROOT / candidate
+    candidate = candidate.resolve()
+    if not candidate.exists():
+        raise SystemExit(f"Icon file not found: {candidate}")
+    return candidate
+
+
 def main() -> int:
-    mode = "onedir"
-    if len(sys.argv) > 1:
-        mode = sys.argv[1].strip().lower()
-    if mode not in {"onedir", "onefile"}:
-        raise SystemExit("Usage: python build_release.py [onedir|onefile]")
+    parsed = parse_args()
+    mode = parsed.mode
+    icon_path = resolve_icon_path(parsed.icon)
+
+    import PyInstaller.__main__
+    from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
     if BUILD.exists():
         shutil.rmtree(BUILD)
@@ -48,6 +77,10 @@ def main() -> int:
         "--specpath",
         str(BUILD / "spec"),
     ]
+
+    if icon_path is not None:
+        args.extend(["--icon", str(icon_path)])
+        data_files.append((str(icon_path), f"resources/app-icon{icon_path.suffix.lower()}"))
 
     if mode == "onefile":
         args.append("--onefile")

@@ -40,6 +40,20 @@ def bundled_site_config_template() -> Path:
     return bundle_root() / "site_config.example.json"
 
 
+def app_icon_path() -> Path | None:
+    candidates = [
+        bundle_root() / "resources" / "app-icon.ico",
+        bundle_root() / "resources" / "app-icon.png",
+        bundle_root() / "resources" / "app-icon.icns",
+        bundle_root() / "assets" / "app-icon.ico",
+        bundle_root() / "assets" / "app-icon.png",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def default_settings_path() -> Path:
     return ensure_user_data_dirs() / SETTINGS_BASENAME
 
