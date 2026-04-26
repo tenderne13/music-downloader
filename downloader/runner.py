@@ -212,12 +212,21 @@ class DownloadRunner:
                     self._log("文件", f"候选文件: {name} ({size_text})")
                     continue
 
+                if self._looks_like_extensionless_folder(name):
+                    folder_rows.append((row, name))
+                    self._log("文件", f"大小无法解析，但名称无扩展名，按目录处理: {name}")
+                    continue
+
                 self._log("文件", f"大小文本无法解析，继续探测: {name} / {size_text}")
 
             if self._has_download_button(row, page):
                 downloadable_unknown_rows.append((row, name))
                 self._log("文件", f"可下载但未解析出大小的行: {name}")
             else:
+                if self._looks_like_extensionless_folder(name):
+                    folder_rows.append((row, name))
+                    self._log("文件", f"无下载按钮且名称无扩展名，按目录处理: {name}")
+                    continue
                 self._log("文件", f"既没有识别到大小，也没有识别到下载按钮: {name}")
 
         if mp3_entries:
@@ -550,9 +559,20 @@ class DownloadRunner:
         if re.fullmatch(r"\d+", name) and row.locator(".filename-text, .file-click-wrap, .filename").count() > 0:
             return True
 
+        if self._looks_like_extensionless_folder(name):
+            return True
+
         row_text = row.inner_text().strip().lower()
         hints = ("folder", "items", "dir", "目录", "文件夹", "子项")
         return any(hint in row_text for hint in hints)
+
+    def _looks_like_extensionless_folder(self, name: str) -> bool:
+        normalized = name.strip().rstrip(".")
+        if not normalized:
+            return False
+        if normalized.startswith("."):
+            return False
+        return "." not in normalized
 
     def _looks_like_entry_count(self, text: str) -> bool:
         if not text:
