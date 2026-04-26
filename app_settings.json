@@ -1,0 +1,12 @@
+{
+  "queries": [
+    "不得不爱",
+    "曹操"
+  ],
+  "site_config_path": "site_config.example.json",
+  "download_dir": "downloads",
+  "user_data_dir": ".browser-profile",
+  "browser_channel": "chromium",
+  "headless": false,
+  "auto_save_on_start": true
+}

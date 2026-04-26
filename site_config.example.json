@@ -1,0 +1,45 @@
+{
+  "search_url_template": "https://www.gequhai.com/s/{query}",
+  "search_result_links": [
+    "#myTables > tbody > tr:nth-child(1) > td:nth-child(2) > a"
+  ],
+  "detail_download_buttons": [
+    "#btn-download-mp3",
+    "text=下载"
+  ],
+  "quality_download_buttons": [
+    "text=高品质"
+  ],
+  "storage_row_selectors": [
+    "tbody tr",
+    ".ant-table-tbody > tr",
+    ".ant-table-row",
+    "[role='row']"
+  ],
+  "row_name_selectors": [
+    "#ice-container > div.DetailLayout--container--264z8Xd.DetailLayout--share-detail-container--2v06EHx.share-container-cls-name-for-get-dom > div.DetailLayout--content--14Z28Ay > div.share-detail-content > div.ShareDetail--content-body--3dZcv3x > div.share-content > div.file-list.list-file-share-height > div.ant-table-wrapper > div > div > div > div > div > div.ant-table-body > div > table > tbody > tr > td:nth-child(2) > div > div.file-click-wrap > div.filename-text.editable-cell.editable-cell-allow"
+  ],
+  "row_size_selectors": [
+    "td:nth-child(3)",
+    "td:nth-child(4)",
+    ".file-size",
+    "[data-role='size']"
+  ],
+  "row_download_selectors": [
+    "#ice-container > div.DetailLayout--container--264z8Xd.DetailLayout--share-detail-container--2v06EHx.share-container-cls-name-for-get-dom > div.DetailLayout--content--14Z28Ay > div.share-detail-content > div.ShareDetail--content-body--3dZcv3x > div.share-content > div.file-list.list-file-share-height > div.ant-table-wrapper > div > div > div > div > div > div.ant-table-body > div > table > tbody > tr:nth-child(1) > td:nth-child(2) > div > div.hover-oper > div.hover-oper-list > div.hover-oper-item.hoitem-down"
+  ],
+  "pre_download_confirm_buttons": [
+    "body > div.jconfirm.jconfirm-light.jconfirm-open > div.jconfirm-scrollpane > div > div > div > div > div > div > div > div.jconfirm-buttons",
+    ".jconfirm-buttons button",
+    "text=确定"
+  ],
+  "post_download_confirm_buttons": [],
+  "post_quality_close_buttons": [
+    "body > div:nth-child(10) > div > div.ant-modal-wrap.ant-modal-centered > div > div.ant-modal-content > button"
+  ],
+  "directory_name_pattern": "^\\d+$",
+  "max_depth": 2,
+  "expect_new_page_after_result_click": false,
+  "expect_new_page_after_quality_click": true,
+  "timeout_ms": 15000
+}
