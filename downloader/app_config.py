@@ -42,7 +42,15 @@ class AppConfig:
         settings_path = Path(path)
         if not settings_path.exists():
             return cls.default()
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        try:
+            raw = settings_path.read_text(encoding="utf-8").strip()
+            if not raw:
+                return cls.default()
+            data = json.loads(raw)
+        except (OSError, json.JSONDecodeError):
+            return cls.default()
+        if not isinstance(data, dict):
+            return cls.default()
         return cls.from_dict(data)
 
     def to_dict(self) -> dict[str, Any]:

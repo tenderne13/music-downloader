@@ -27,7 +27,16 @@ class SiteConfig:
 
     @classmethod
     def from_file(cls, path: str | Path) -> "SiteConfig":
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        config_path = Path(path)
+        raw = config_path.read_text(encoding="utf-8").strip()
+        if not raw:
+            raise ValueError(f"Site config is empty: {config_path}")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Site config is not valid JSON: {config_path}") from exc
+        if not isinstance(data, dict):
+            raise ValueError(f"Site config root must be a JSON object: {config_path}")
         return cls.from_dict(data)
 
     @classmethod

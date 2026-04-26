@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
@@ -70,14 +71,23 @@ def default_browser_profile_dir() -> Path:
     return ensure_user_data_dirs() / ".browser-profile"
 
 
-def ensure_default_site_config() -> Path:
-    target = default_site_config_path()
-    if target.exists():
-        return target
-
+def _write_default_site_config(target: Path) -> None:
     template = bundled_site_config_template()
     if template.exists():
         shutil.copyfile(template, target)
     else:
         target.write_text("{}", encoding="utf-8")
+
+
+def ensure_default_site_config() -> Path:
+    target = default_site_config_path()
+    if target.exists():
+        try:
+            raw = target.read_text(encoding="utf-8").strip()
+            if raw and isinstance(json.loads(raw), dict):
+                return target
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    _write_default_site_config(target)
     return target

@@ -9,7 +9,7 @@ from typing import Callable
 
 from .app_config import AppConfig, DEFAULT_SETTINGS_PATH
 from .config import SiteConfig
-from .runtime import app_icon_path
+from .runtime import app_icon_path, ensure_default_site_config
 from .service import BatchDownloadService
 
 
@@ -502,7 +502,13 @@ class MusicDownloaderGUI:
 
     def _load_site_config(self, path: Path) -> SiteConfig:
         if path.exists():
-            return SiteConfig.from_file(path)
+            try:
+                return SiteConfig.from_file(path)
+            except (OSError, ValueError):
+                if path == Path(self.app_config.site_config_path):
+                    fallback = ensure_default_site_config()
+                    self.app_config.site_config_path = str(fallback)
+                    return SiteConfig.from_file(fallback)
         return SiteConfig(
             search_url_template="",
             search_result_links=[],
