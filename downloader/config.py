@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 
-@dataclass(slots=True)
+@dataclass
 class SiteConfig:
     search_url_template: str
     search_result_links: list[str]

@@ -12,31 +12,134 @@
 6. 在文件列表中查找可下载文件，优先选择体积最大的文件下载。
 7. 保存浏览器登录状态，避免每次重新登录。
 
-## 环境准备
+## 环境准备（Windows / macOS）
 
-建议始终使用项目自己的虚拟环境：
+建议始终使用项目自己的虚拟环境，不要和其他 Python 项目共用环境。
+
+### 先确认这 3 件事
+
+1. 已安装 Python（建议 3.10+），并且终端里能执行 `python` 或 `python3`
+2. 已进入项目根目录 `music-downloader`
+3. 首次运行时，建议本机已安装 Chrome；Windows 也可以使用 Edge
+
+---
+
+### Windows 配置教程
+
+#### 第 1 步：创建虚拟环境
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-python -m playwright install chromium
 ```
 
-如果 PowerShell 不允许激活脚本，可以先执行：
+#### 第 2 步：激活虚拟环境
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+如果 PowerShell 提示不允许执行脚本，先执行下面这条命令，再重新激活：
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-```
-
-然后重新激活：
-
-```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
+#### 第 3 步：安装项目依赖
+
+```powershell
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+#### 第 4 步：安装 Playwright 浏览器内核
+
+```powershell
+python -m playwright install chromium
+```
+
+#### 第 5 步：准备配置文件
+
+项目自带示例配置文件 `site_config.example.json`。
+
+- 如果你只是先测试程序，可以直接使用这个示例文件
+- 如果你要适配自己的站点，建议复制一份再修改，例如复制成 `site_config.json`
+
+Windows 复制示例：
+
+```powershell
+Copy-Item .\site_config.example.json .\site_config.json
+```
+
+#### 第 6 步：先跑一次测试命令
+
+```powershell
+python app.py --query "test file" --config site_config.example.json --download-dir .\downloads
+```
+
+#### 第 7 步：退出虚拟环境（用完再执行）
+
+```powershell
+deactivate
+```
+
+---
+
+### macOS 配置教程
+
+#### 第 1 步：创建虚拟环境
+
+```bash
+python3 -m venv .venv
+```
+
+#### 第 2 步：激活虚拟环境
+
+```bash
+source .venv/bin/activate
+```
+
+#### 第 3 步：安装项目依赖
+
+```bash
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+#### 第 4 步：安装 Playwright 浏览器内核
+
+```bash
+python -m playwright install chromium
+```
+
+#### 第 5 步：准备配置文件
+
+项目自带示例配置文件 `site_config.example.json`。
+
+- 如果你只是先测试程序，可以直接使用这个示例文件
+- 如果你要适配自己的站点，建议复制一份再修改，例如复制成 `site_config.json`
+
+macOS 复制示例：
+
+```bash
+cp ./site_config.example.json ./site_config.json
+```
+
+#### 第 6 步：先跑一次测试命令
+
+```bash
+python app.py --query "test file" --config site_config.example.json --download-dir ./downloads
+```
+
+#### 第 7 步：退出虚拟环境（用完再执行）
+
+```bash
+deactivate
+```
+
 ## 运行方式
+
+### Windows 运行命令
 
 基础运行：
 
@@ -52,40 +155,99 @@ python app.py --query "test file" --config site_config.example.json --download-d
 python app.py --query "test file" --config site_config.example.json --download-dir .\downloads --headless
 ```
 
-退出虚拟环境：
+### macOS 运行命令
 
-```powershell
-deactivate
+基础运行：
+
+```bash
+source .venv/bin/activate
+python app.py --query "test file" --config site_config.example.json --download-dir ./downloads
+```
+
+无头模式运行：
+
+```bash
+source .venv/bin/activate
+python app.py --query "test file" --config site_config.example.json --download-dir ./downloads --headless
 ```
 
 ## 登录状态保持
 
 程序默认会把浏览器用户数据保存到 `.browser-profile`，因此第一次手动登录后，后续运行会复用同一份登录状态。
 
-第一次建议用可视化模式运行并手动登录：
+第一次建议用可视化模式运行并手动登录。
+
+### Windows 首次登录示例
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 python app.py --query "test file" --browser-channel chrome --no-headless
 ```
 
+### macOS 首次登录示例
+
+```bash
+source .venv/bin/activate
+python app.py --query "test file" --browser-channel chrome --no-headless
+```
+
 你也可以自定义用户数据目录：
+
+Windows：
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 python app.py --query "test file" --user-data-dir .\profiles\default
 ```
 
+macOS：
+
+```bash
+source .venv/bin/activate
+python app.py --query "test file" --user-data-dir ./profiles/default
+```
+
 如果希望使用本机安装的浏览器内核：
+
+Windows：
 
 ```powershell
 python app.py --query "test file" --browser-channel chrome
 python app.py --query "test file" --browser-channel msedge
 ```
 
+macOS：
+
+```bash
+python app.py --query "test file" --browser-channel chrome
+```
+
 ## 配置说明
 
-请编辑 [site_config.example.json](/F:/pyWorkspace/musicDownloader/site_config.example.json) 来适配目标页面结构。
+建议优先复制 `site_config.example.json` 为你自己的配置文件，再按目标站点实际结构修改。
+
+例如：
+
+- Windows 可以复制成 `site_config.json`
+- macOS 也可以复制成 `site_config.json`
+
+对应命令如下：
+
+Windows：
+
+```powershell
+Copy-Item .\site_config.example.json .\site_config.json
+```
+
+macOS：
+
+```bash
+cp ./site_config.example.json ./site_config.json
+```
+
+如果你只是先验证程序能否运行，也可以直接使用 `site_config.example.json`。
+
+主要编辑对象就是项目根目录下的 `site_config.example.json`（或你复制出来的 `site_config.json`）。
 
 主要字段含义如下：
 
@@ -144,8 +306,17 @@ python app.py --query "test file" --browser-channel msedge
 
 ### 1. Windows 打包
 
+推荐按下面顺序执行：
+
+#### 第 1 步：激活虚拟环境
+
 ```powershell
 .\.venv\Scripts\Activate.ps1
+```
+
+#### 第 2 步：执行打包脚本
+
+```powershell
 .\build_windows.ps1
 ```
 
@@ -165,9 +336,31 @@ dist/win32/MusicDownloader/MusicDownloader.exe
 
 需要在 macOS 机器上执行，不能在 Windows 上直接产出可运行的 `.app`。
 
+推荐按下面顺序执行：
+
+#### 第 1 步：激活虚拟环境
+
 ```bash
 source .venv/bin/activate
+```
+
+#### 第 2 步：执行打包脚本
+
+```bash
 bash build_macos.sh
+```
+
+如果打包脚本提示缺少 `tkinter`（`_tkinter`），先补齐 Python 的 Tk 支持后再打包。
+可先自检：
+
+```bash
+python -c "import _tkinter; print('tkinter ok')"
+```
+
+若你使用 Homebrew Python 3.13，可安装：
+
+```bash
+brew install python-tk@3.13
 ```
 
 打包输出目录：
@@ -177,6 +370,8 @@ dist/darwin/MusicDownloader.app
 ```
 
 ### 3. 可选：打单文件版本
+
+如果你不想输出整个目录，而是想尝试单文件版本，可以执行：
 
 ```powershell
 .\.venv\Scripts\python.exe build_release.py onefile

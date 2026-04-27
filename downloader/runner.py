@@ -47,7 +47,7 @@ DIRECT_DOWNLOAD_LINK_SELECTORS = [
 ]
 
 
-@dataclass(slots=True)
+@dataclass
 class FileEntry:
     row: Locator
     name: str

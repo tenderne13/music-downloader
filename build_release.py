@@ -42,10 +42,21 @@ def resolve_icon_path(icon_arg: str | None) -> Path | None:
     return candidate
 
 
+def ensure_tkinter_available() -> None:
+    try:
+        import _tkinter  # noqa: F401
+    except ModuleNotFoundError as exc:
+        raise SystemExit(
+            "当前 Python 缺少 tkinter（_tkinter），GUI 打包产物将无法启动。\n"
+            "请先安装 tkinter 支持后再重新打包。"
+        ) from exc
+
+
 def main() -> int:
     parsed = parse_args()
     mode = parsed.mode
     icon_path = resolve_icon_path(parsed.icon)
+    ensure_tkinter_available()
 
     import PyInstaller.__main__
     from PyInstaller.utils.hooks import collect_data_files, collect_submodules

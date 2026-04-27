@@ -15,7 +15,7 @@ from .runtime import (
 DEFAULT_SETTINGS_PATH = default_settings_path()
 
 
-@dataclass(slots=True)
+@dataclass
 class AppConfig:
     queries: list[str] = field(default_factory=list)
     site_config_path: str = str(ensure_default_site_config())

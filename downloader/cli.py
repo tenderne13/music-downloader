@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from .app_config import AppConfig, DEFAULT_SETTINGS_PATH
 from .config import SiteConfig
-from .gui import launch_gui
 from .runtime import ensure_default_site_config
 from .service import BatchDownloadService
 
@@ -67,6 +67,17 @@ def main() -> int:
     app_defaults = AppConfig.load(args.settings)
 
     if should_launch_gui:
+        try:
+            from .gui import launch_gui
+        except ModuleNotFoundError as exc:
+            if exc.name in {"tkinter", "_tkinter"}:
+                print(
+                    "当前 Python 缺少 tkinter，无法启动 GUI。\n"
+                    "请安装 tkinter 支持后重试，或使用 --no-gui 走命令行模式。",
+                    file=sys.stderr,
+                )
+                return 2
+            raise
         launch_gui(args.settings)
         return 0
 

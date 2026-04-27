@@ -14,7 +14,7 @@ LogCallback = Callable[[str, str], None]
 ProgressCallback = Callable[[dict[str, object]], None]
 
 
-@dataclass(slots=True)
+@dataclass
 class DownloadTask:
     query: str
 
