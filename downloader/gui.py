@@ -3,6 +3,7 @@ from __future__ import annotations
 import queue
 import threading
 import tkinter as tk
+import sys
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable
@@ -21,6 +22,7 @@ class MusicDownloaderGUI:
         self.root.minsize(980, 680)
         self._window_icon_image: tk.PhotoImage | None = None
         self._apply_window_icon()
+        self._configure_ttk_theme()
 
         self.settings_path = Path(settings_path)
         self.event_queue: queue.Queue[tuple[str, object]] = queue.Queue()
@@ -58,6 +60,42 @@ class MusicDownloaderGUI:
                 self.root.iconphoto(True, self._window_icon_image)
         except Exception:
             self._window_icon_image = None
+
+    def _configure_ttk_theme(self) -> None:
+        """Use a high-contrast ttk theme on macOS to avoid blank-looking pages."""
+        if sys.platform != "darwin":
+            return
+
+        style = ttk.Style(self.root)
+        try:
+            if "clam" in style.theme_names():
+                style.theme_use("clam")
+
+            base_bg = "#f5f6f7"
+            surface_bg = "#ffffff"
+            text_fg = "#1f2328"
+
+            self.root.configure(background=base_bg)
+            style.configure(".", background=base_bg, foreground=text_fg)
+            style.configure("TFrame", background=base_bg)
+            style.configure("TLabelframe", background=base_bg)
+            style.configure("TLabelframe.Label", background=base_bg, foreground=text_fg)
+            style.configure("TLabel", background=base_bg, foreground=text_fg)
+            style.configure("TCheckbutton", background=base_bg, foreground=text_fg)
+
+            style.configure("TNotebook", background=base_bg, borderwidth=0)
+            style.configure("TNotebook.Tab", background="#e8eaed", foreground=text_fg, padding=(12, 6))
+            style.map(
+                "TNotebook.Tab",
+                background=[("selected", surface_bg)],
+                foreground=[("selected", text_fg)],
+            )
+
+            style.configure("TEntry", fieldbackground=surface_bg, foreground=text_fg)
+            style.configure("TCombobox", fieldbackground=surface_bg, foreground=text_fg)
+        except tk.TclError:
+            # Keep default theme when local Tk does not support style overrides.
+            pass
 
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=1)
