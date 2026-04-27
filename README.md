@@ -320,6 +320,20 @@ cp ./site_config.example.json ./site_config.json
 .\build_windows.ps1
 ```
 
+默认会自动使用项目内置图标：`assets/icons/app_icon.ico`。
+
+如果要指定自定义图标，可传 `-Icon` 参数（建议 `.ico`）：
+
+```powershell
+.\build_windows.ps1 -Mode onedir -Icon .\assets\icons\app_icon.ico
+```
+
+也可直接给你自己的图标文件：
+
+```powershell
+.\build_windows.ps1 -Mode onefile -Icon C:\path\to\your-icon.ico
+```
+
 打包输出目录：
 
 ```text
@@ -349,6 +363,8 @@ source .venv/bin/activate
 ```bash
 bash build_macos.sh
 ```
+
+默认会自动使用项目内置图标：`assets/icons/app_icon.icns`。
 
 如果打包脚本提示缺少 `tkinter`（`_tkinter`），先补齐 Python 的 Tk 支持后再打包。
 可先自检：

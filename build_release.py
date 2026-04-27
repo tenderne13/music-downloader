@@ -10,6 +10,10 @@ APP_NAME = "MusicDownloader"
 ROOT = Path(__file__).resolve().parent
 DIST = ROOT / "dist"
 BUILD = ROOT / "build"
+DEFAULT_ICONS = {
+    "darwin": ROOT / "assets" / "icons" / "app_icon.icns",
+    "win32": ROOT / "assets" / "icons" / "app_icon.ico",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -42,6 +46,17 @@ def resolve_icon_path(icon_arg: str | None) -> Path | None:
     return candidate
 
 
+def find_default_icon() -> Path | None:
+    platform_icon = DEFAULT_ICONS.get(sys.platform)
+    if platform_icon and platform_icon.exists():
+        return platform_icon.resolve()
+
+    linux_fallback = ROOT / "assets" / "icons" / "app_icon.png"
+    if linux_fallback.exists():
+        return linux_fallback.resolve()
+    return None
+
+
 def ensure_tkinter_available() -> None:
     try:
         import _tkinter  # noqa: F401
@@ -56,6 +71,8 @@ def main() -> int:
     parsed = parse_args()
     mode = parsed.mode
     icon_path = resolve_icon_path(parsed.icon)
+    if icon_path is None:
+        icon_path = find_default_icon()
     ensure_tkinter_available()
 
     import PyInstaller.__main__

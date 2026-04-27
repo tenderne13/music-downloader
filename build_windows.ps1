@@ -5,6 +5,11 @@
 )
 
 $ErrorActionPreference = "Stop"
+$defaultIcon = "assets/icons/app_icon.ico"
+
+if (-not $Icon -and (Test-Path $defaultIcon)) {
+    $Icon = $defaultIcon
+}
 
 if (-not (Test-Path ".\.venv\Scripts\python.exe")) {
     throw "Missing .venv\\Scripts\\python.exe. Create the virtual environment and install dependencies first."

@@ -3,6 +3,11 @@ set -euo pipefail
 
 MODE="${1:-onedir}"
 ICON_PATH="${2:-}"
+DEFAULT_ICON_PATH="assets/icons/app_icon.icns"
+
+if [[ -z "$ICON_PATH" && -f "$DEFAULT_ICON_PATH" ]]; then
+  ICON_PATH="$DEFAULT_ICON_PATH"
+fi
 
 if [[ ! -f ".venv/bin/python" ]]; then
   echo "未找到 .venv/bin/python，请先创建并安装虚拟环境。" >&2
